@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Room {
+  id             String     @id @default(cuid())
+  roomCode       String     @unique @db.VarChar(6)
+  hostToken      String     @unique
+  hostLanguage   String     @default("en")
+  isActive       Boolean    @default(true)
+  moderationMode String     @default("post")
+  allowVoice     Boolean    @default(true)
+  allowPolls     Boolean    @default(true)
+  maxCapacity    Int        @default(500)
+  currentCount   Int        @default(0)
+  expiresAt      DateTime
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  questions      Question[]
+  polls          Poll[]
+}
+
+model Question {
+  id              String    @id @default(cuid())
+  roomId          String
+  room            Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  textOriginal    String    @db.VarChar(500)
+  textTranslated  String?   @db.VarChar(500)
+  languageCode    String    @default("en")
+  isVoice         Boolean   @default(false)
+  audioUrl        String?
+  netVotes        Int       @default(0)
+  status          String    @default("active")
+  isPinned        Boolean   @default(false)
+  anonymousUserId String
+  createdAt       DateTime  @default(now())
+  answeredAt      DateTime?
+  votes           Vote[]
+}
+
+model Vote {
+  id              String   @id @default(cuid())
+  questionId      String
+  question        Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  anonymousUserId String
+  voteType        String
+  createdAt       DateTime @default(now())
+
+  @@unique([questionId, anonymousUserId])
+}
+
+model Poll {
+  id        String       @id @default(cuid())
+  roomId    String
+  room      Room         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  question  String       @db.VarChar(500)
+  isActive  Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  closedAt  DateTime?
+  options   PollOption[]
+}
+
+model PollOption {
+  id        String     @id @default(cuid())
+  pollId    String
+  poll      Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  text      String     @db.VarChar(200)
+  voteCount Int        @default(0)
+  pollVotes PollVote[]
+}
+
+model PollVote {
+  id              String     @id @default(cuid())
+  pollOptionId    String
+  pollOption      PollOption @relation(fields: [pollOptionId], references: [id], onDelete: Cascade)
+  pollId          String
+  anonymousUserId String
+  createdAt       DateTime   @default(now())
+
+  @@unique([pollId, anonymousUserId])
+}
