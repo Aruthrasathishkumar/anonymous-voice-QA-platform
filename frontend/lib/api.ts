@@ -15,14 +15,20 @@ export const roomsApi = {
     maxCapacity?: number
   }) => api.post('/api/rooms/create', data),
 
-  join: (roomCode: string) =>
-    api.post('/api/rooms/join', { roomCode }),
+  join: (roomCode: string, anonymousUserId?: string) =>
+    api.post('/api/rooms/join', { roomCode, anonymousUserId }),
 
   get: (roomCode: string) =>
     api.get(`/api/rooms/${roomCode}`),
 
   close: (roomCode: string, hostToken: string) =>
     api.delete(`/api/rooms/${roomCode}/close`, {
+      headers: { 'x-host-token': hostToken }
+    }),
+
+  // Hard delete — permanently removes room and all data
+  delete: (roomCode: string, hostToken: string) =>
+    api.delete(`/api/rooms/${roomCode}/delete`, {
       headers: { 'x-host-token': hostToken }
     })
 }

@@ -1,34 +1,46 @@
 import { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
+import { isValidAnonymousId } from '../utils/anonymousId'
 import { emitToRoom } from '../socket/index'
 
 const voteSchema = z.object({
   questionId: z.string().min(1),
-  anonymousUserId: z.string().min(10).max(100),
+  anonymousUserId: z.string().min(1).max(100),
   voteType: z.enum(['up', 'down'])
 })
 
 const votesPlugin: FastifyPluginAsync = async (server) => {
 
   server.post('/', async (request, reply) => {
-    const body = voteSchema.parse(request.body)
+    const result = voteSchema.safeParse(request.body)
+    if (!result.success) {
+      return reply.code(400).send({ error: result.error.errors[0].message })
+    }
+    const body = result.data
 
-    // Rate limit: max 10 votes per minute
+    if (!isValidAnonymousId(body.anonymousUserId)) {
+      return reply.code(400).send({ error: 'Invalid user ID' })
+    }
+
+    // Redis sliding window rate limit: max 10 votes per minute
     const rateLimitKey = `ratelimit:vote:${body.anonymousUserId}`
     const voteCount = await server.redis.incr(rateLimitKey)
     if (voteCount === 1) await server.redis.expire(rateLimitKey, 60)
     if (voteCount > 10) {
-      return reply.code(429).send({ error: 'Max 10 votes per minute' })
+      return reply.code(429).send({ error: 'Too many votes. Max 10 per minute.' })
     }
 
-    // Get question to find roomCode for socket emit
     const question = await server.prisma.question.findUnique({
       where: { id: body.questionId },
       include: { room: true }
     })
-
     if (!question) {
       return reply.code(404).send({ error: 'Question not found' })
+    }
+
+    // Don't allow voting on hidden or rejected questions
+    if (['hidden', 'rejected'].includes(question.status)) {
+      return reply.code(403).send({ error: 'Cannot vote on this question' })
     }
 
     const existing = await server.prisma.vote.findUnique({
@@ -47,7 +59,6 @@ const votesPlugin: FastifyPluginAsync = async (server) => {
         await updateNetVotes(server.prisma, body.questionId)
         const netVotes = await getNetVotes(server.prisma, body.questionId)
 
-        // Emit to everyone in room
         emitToRoom(question.room.roomCode, 'vote:updated', {
           questionId: body.questionId,
           netVotes,
@@ -63,7 +74,7 @@ const votesPlugin: FastifyPluginAsync = async (server) => {
         })
       }
     } else {
-      // New vote
+      // New vote — PostgreSQL UNIQUE constraint prevents duplicates at DB level
       await server.prisma.vote.create({
         data: {
           questionId: body.questionId,
@@ -76,7 +87,6 @@ const votesPlugin: FastifyPluginAsync = async (server) => {
     await updateNetVotes(server.prisma, body.questionId)
     const netVotes = await getNetVotes(server.prisma, body.questionId)
 
-    // Emit to everyone in room
     emitToRoom(question.room.roomCode, 'vote:updated', {
       questionId: body.questionId,
       netVotes,

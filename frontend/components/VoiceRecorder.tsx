@@ -1,6 +1,7 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
+import { Mic, Square, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import axios from 'axios'
 
@@ -44,7 +45,6 @@ export default function VoiceRecorder({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       streamRef.current = stream
 
-      // Find supported format
       const mimeType = MediaRecorder.isTypeSupported('audio/webm')
         ? 'audio/webm'
         : MediaRecorder.isTypeSupported('audio/ogg')
@@ -68,7 +68,6 @@ export default function VoiceRecorder({
       setState('recording')
       setSeconds(0)
 
-      // Start timer
       timerRef.current = setInterval(() => {
         setSeconds(prev => {
           if (prev >= 29) {
@@ -79,10 +78,10 @@ export default function VoiceRecorder({
         })
       }, 1000)
 
-    } catch (err: any) {
+    } catch (err: unknown) {
       setState('idle')
-      if (err.name === 'NotAllowedError') {
-        toast.error('Microphone access denied. Please allow microphone access.')
+      if ((err as { name?: string }).name === 'NotAllowedError') {
+        toast.error('Microphone access denied')
       } else {
         toast.error('Could not access microphone')
       }
@@ -116,84 +115,95 @@ export default function VoiceRecorder({
         `${apiUrl}/api/voice/upload`,
         formData,
         { headers: { 'Content-Type': 'multipart/form-data' } }
-    )
+      )
 
       setState('processing')
-      toast.success('Voice question submitted! Processing...')
+      toast.success('Voice question submitted!')
       onSubmitted(res.data.questionId)
 
-      // Reset after 3 seconds
       setTimeout(() => setState('idle'), 3000)
 
-    } catch (err: any) {
+    } catch (err: unknown) {
       setState('idle')
-      toast.error(err?.response?.data?.error || 'Failed to upload audio')
+      toast.error((err as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Failed to upload audio')
     }
   }
 
   if (!isSupported) {
     return (
-      <p className="text-xs text-muted-foreground text-center">
-        Voice recording not supported in this browser. Use text instead.
-      </p>
+      <div className="text-center py-3">
+        <p className="text-xs text-muted-foreground">
+          Voice recording is not supported in this browser.
+        </p>
+      </div>
     )
   }
 
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className="space-y-3">
       {state === 'idle' && (
-        <Button
-          variant="outline"
+        <button
           onClick={startRecording}
-          className="w-full gap-2"
+          className="w-full flex items-center justify-center gap-2.5 py-3 px-4 rounded-xl border-2 border-dashed border-border hover:border-foreground/20 hover:bg-muted/50 transition-all text-sm font-medium text-muted-foreground hover:text-foreground cursor-pointer"
         >
-          🎤 Record Voice Question
-        </Button>
+          <Mic className="w-4 h-4" />
+          Record a voice question
+        </button>
       )}
 
       {state === 'requesting' && (
-        <p className="text-sm text-muted-foreground">
+        <div className="flex items-center justify-center gap-2 py-3 text-sm text-muted-foreground">
+          <Loader2 className="w-4 h-4 animate-spin" />
           Requesting microphone access...
-        </p>
+        </div>
       )}
 
       {state === 'recording' && (
-        <div className="w-full space-y-2">
+        <div className="p-4 rounded-xl bg-destructive/[0.04] border border-destructive/10 space-y-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
-              <span className="text-sm font-medium text-red-500">Recording</span>
+            <div className="flex items-center gap-2.5">
+              <div className="w-2.5 h-2.5 rounded-full bg-destructive pulse-live" />
+              <span className="text-sm font-medium text-destructive">Recording</span>
             </div>
-            <span className="text-sm font-mono text-muted-foreground">
-              {seconds}s / 30s
+            <span className="text-sm font-mono text-muted-foreground tabular-nums">
+              {String(Math.floor(seconds / 60)).padStart(1, '0')}:{String(seconds % 60).padStart(2, '0')} / 0:30
             </span>
           </div>
-          <div className="w-full bg-secondary rounded-full h-1.5">
+
+          {/* Progress bar */}
+          <div className="w-full h-1 rounded-full bg-destructive/10 overflow-hidden">
             <div
-              className="bg-red-500 h-1.5 rounded-full transition-all duration-1000"
+              className="h-full rounded-full bg-destructive transition-all duration-1000 ease-linear"
               style={{ width: `${(seconds / 30) * 100}%` }}
             />
           </div>
+
           <Button
             variant="destructive"
             onClick={stopRecording}
-            className="w-full"
+            className="w-full rounded-xl gap-2"
           >
-            ⏹ Stop and Submit
+            <Square className="w-3.5 h-3.5" />
+            Stop & Submit
           </Button>
         </div>
       )}
 
       {state === 'uploading' && (
-        <p className="text-sm text-muted-foreground">Uploading audio...</p>
+        <div className="flex items-center justify-center gap-2.5 py-4 text-sm text-muted-foreground">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Uploading audio...
+        </div>
       )}
 
       {state === 'processing' && (
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-          <p className="text-sm text-muted-foreground">
-            Transcribing your question...
-          </p>
+        <div className="flex items-center justify-center gap-2.5 py-4 rounded-xl bg-muted/50">
+          <div className="flex gap-1">
+            <div className="w-1.5 h-1.5 rounded-full bg-foreground/40 animate-bounce" style={{ animationDelay: '0ms' }} />
+            <div className="w-1.5 h-1.5 rounded-full bg-foreground/40 animate-bounce" style={{ animationDelay: '150ms' }} />
+            <div className="w-1.5 h-1.5 rounded-full bg-foreground/40 animate-bounce" style={{ animationDelay: '300ms' }} />
+          </div>
+          <span className="text-sm text-muted-foreground">Transcribing your question...</span>
         </div>
       )}
     </div>

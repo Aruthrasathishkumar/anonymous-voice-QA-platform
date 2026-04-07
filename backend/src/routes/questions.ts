@@ -6,15 +6,19 @@ import { emitToRoom, emitToHost } from '../socket/index'
 
 const createQuestionSchema = z.object({
   roomId: z.string().min(1),
-  text: z.string().min(5).max(500).trim(),
-  anonymousUserId: z.string().min(10).max(100),
-  languageCode: z.string().length(2).optional().default('en')
+  text: z.string().min(5, 'Question must be at least 5 characters').max(500, 'Question too long').trim(),
+  anonymousUserId: z.string().min(1).max(100),
+  languageCode: z.string().optional().default('en')
 })
 
 const questionsPlugin: FastifyPluginAsync = async (server) => {
 
   server.post('/', async (request, reply) => {
-    const body = createQuestionSchema.parse(request.body)
+    const result = createQuestionSchema.safeParse(request.body)
+    if (!result.success) {
+      return reply.code(400).send({ error: result.error.errors[0].message })
+    }
+    const body = result.data
 
     if (!isValidAnonymousId(body.anonymousUserId)) {
       return reply.code(400).send({ error: 'Invalid user ID' })
@@ -30,6 +34,19 @@ const questionsPlugin: FastifyPluginAsync = async (server) => {
       return reply.code(404).send({ error: 'Room not found or closed' })
     }
 
+    // Check room expiry
+    if (new Date() > room.expiresAt) {
+      return reply.code(403).send({ error: 'Room has expired' })
+    }
+
+    // Check room capacity
+    const capacityKey = `room:${room.roomCode}:count`
+    const currentCount = await server.redis.get(capacityKey)
+    if (parseInt(currentCount || '0') >= room.maxCapacity) {
+      return reply.code(403).send({ error: 'Room is at capacity' })
+    }
+
+    // Check question limit per user
     const countKey = `limit:q:${body.anonymousUserId}:${body.roomId}`
     const qCount = await server.redis.get(countKey)
     if (parseInt(qCount || '0') >= 5) {
@@ -51,7 +68,6 @@ const questionsPlugin: FastifyPluginAsync = async (server) => {
     await server.redis.incr(countKey)
     await server.redis.expire(countKey, 86400)
 
-    // Emit to room if active, or to host if pending approval
     if (status === 'active') {
       emitToRoom(room.roomCode, 'question:new', question)
     } else {
@@ -68,6 +84,10 @@ const questionsPlugin: FastifyPluginAsync = async (server) => {
   server.get('/:roomId', async (request, reply) => {
     const { roomId } = request.params as { roomId: string }
     const { sort } = request.query as { sort?: string }
+
+    if (!roomId || roomId.length < 1) {
+      return reply.code(400).send({ error: 'Invalid room ID' })
+    }
 
     const questions = await server.prisma.question.findMany({
       where: {
@@ -86,6 +106,15 @@ const questionsPlugin: FastifyPluginAsync = async (server) => {
     const { status } = request.body as { status: string }
     const hostToken = request.headers['x-host-token'] as string
 
+    const validStatuses = ['active', 'answered', 'hidden', 'pending_approval']
+    if (!validStatuses.includes(status)) {
+      return reply.code(400).send({ error: 'Invalid status' })
+    }
+
+    if (!hostToken) {
+      return reply.code(401).send({ error: 'Host token required' })
+    }
+
     const question = await server.prisma.question.findUnique({
       where: { id: questionId },
       include: { room: true }
@@ -102,7 +131,6 @@ const questionsPlugin: FastifyPluginAsync = async (server) => {
       }
     })
 
-    // Emit status change to everyone in room
     emitToRoom(question.room.roomCode, 'question:status:updated', {
       questionId,
       status: updated.status
@@ -115,6 +143,10 @@ const questionsPlugin: FastifyPluginAsync = async (server) => {
     const { questionId } = request.params as { questionId: string }
     const { isPinned } = request.body as { isPinned: boolean }
     const hostToken = request.headers['x-host-token'] as string
+
+    if (!hostToken) {
+      return reply.code(401).send({ error: 'Host token required' })
+    }
 
     const question = await server.prisma.question.findUnique({
       where: { id: questionId },
@@ -141,6 +173,10 @@ const questionsPlugin: FastifyPluginAsync = async (server) => {
     const { questionId } = request.params as { questionId: string }
     const hostToken = request.headers['x-host-token'] as string
 
+    if (!hostToken) {
+      return reply.code(401).send({ error: 'Host token required' })
+    }
+
     const question = await server.prisma.question.findUnique({
       where: { id: questionId },
       include: { room: true }
@@ -150,7 +186,6 @@ const questionsPlugin: FastifyPluginAsync = async (server) => {
     }
 
     await server.prisma.question.delete({ where: { id: questionId } })
-
     emitToRoom(question.room.roomCode, 'question:deleted', { questionId })
 
     return reply.send({ message: 'Question deleted' })

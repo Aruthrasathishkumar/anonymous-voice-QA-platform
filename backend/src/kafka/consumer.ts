@@ -3,11 +3,9 @@ dotenv.config()
 
 import { Kafka } from 'kafkajs'
 import { PrismaClient } from '@prisma/client'
-import { Translator } from 'deepl-node'
 import { v2 as cloudinary } from 'cloudinary'
 import { emitToRoom, emitToHost } from '../socket/index'
-import https from 'https'
-import FormData from 'form-data'
+import Groq from 'groq-sdk'
 
 const kafka = new Kafka({
   clientId: 'qna-platform-consumer',
@@ -27,64 +25,59 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET
 })
 
-const DEEPL_LANGUAGE_MAP: Record<string, string> = {
-  'es': 'ES', 'fr': 'FR', 'de': 'DE', 'it': 'IT',
-  'pt': 'PT', 'nl': 'NL', 'pl': 'PL', 'ru': 'RU',
-  'ja': 'JA', 'zh': 'ZH', 'ko': 'KO', 'ar': 'AR',
-  'tr': 'TR', 'sv': 'SV', 'da': 'DA', 'fi': 'FI',
-  'cs': 'CS', 'ro': 'RO', 'hu': 'HU', 'id': 'ID'
-}
-
-// Call Whisper API using Node native https — bypasses node-fetch ECONNRESET bug
-async function transcribeWithWhisper(
+async function transcribeAudio(
   audioBuffer: Buffer,
   apiKey: string
 ): Promise<{ text: string; language: string }> {
-  return new Promise((resolve, reject) => {
-    const form = new FormData()
-    form.append('file', audioBuffer, {
-      filename: 'audio.webm',
-      contentType: 'audio/webm'
-    })
-    form.append('model', 'whisper-1')
-    form.append('response_format', 'verbose_json')
+  const groq = new Groq({ apiKey })
 
-    const options = {
-      hostname: 'api.openai.com',
-      path: '/v1/audio/transcriptions',
-      method: 'POST',
-      headers: {
-        ...form.getHeaders(),
-        'Authorization': `Bearer ${apiKey}`
-      }
-    }
-
-    const req = https.request(options, (res) => {
-      let data = ''
-      res.on('data', (chunk) => { data += chunk })
-      res.on('end', () => {
-        try {
-          const parsed = JSON.parse(data)
-          if (parsed.error) {
-            reject(new Error(parsed.error.message))
-          } else {
-            resolve({
-              text: parsed.text || '',
-              language: parsed.language || 'en'
-            })
-          }
-        } catch (e) {
-          reject(new Error(`Failed to parse response: ${data}`))
-        }
-      })
-    })
-
-    req.on('error', (err) => {
-      reject(err)
-    })
-
-    form.pipe(req)
+  const uint8Array = new Uint8Array(
+    audioBuffer.buffer,
+    audioBuffer.byteOffset,
+    audioBuffer.byteLength
+  )
+  const audioFile = new File([uint8Array], 'audio.webm', {
+    type: 'audio/webm'
   })
+
+  const transcription = await groq.audio.transcriptions.create({
+    file: audioFile,
+    model: 'whisper-large-v3',
+    response_format: 'verbose_json'
+  })
+
+  return {
+    text: transcription.text,
+    language: (transcription as any).language || 'en'
+  }
+}
+
+async function translateToEnglish(
+  text: string,
+  apiKey: string
+): Promise<string | undefined> {
+  try {
+    const groq = new Groq({ apiKey })
+    const response = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a translator. Translate the user\'s text to English. Return ONLY the translated text, nothing else. No explanations, no quotes, just the translation.'
+        },
+        {
+          role: 'user',
+          content: text
+        }
+      ],
+      temperature: 0.1,
+      max_tokens: 500
+    })
+    return response.choices[0]?.message?.content?.trim()
+  } catch (err) {
+    console.error('Translation failed:', err)
+    return undefined
+  }
 }
 
 export async function startVoiceConsumer(prisma: PrismaClient) {
@@ -113,23 +106,21 @@ export async function startVoiceConsumer(prisma: PrismaClient) {
         roomCode,
         audioUrl,
         audioPublicId,
-        hostLanguage,
-        anonymousUserId
       } = jobData
 
       console.log(`Processing voice question: ${questionId}`)
 
       try {
         // Step 1: Download audio from Cloudinary
-        console.log(`Downloading audio from: ${audioUrl}`)
+        console.log('Downloading audio from Cloudinary...')
         const audioResponse = await fetch(audioUrl)
         const audioBuffer = Buffer.from(await audioResponse.arrayBuffer())
         console.log(`Audio downloaded: ${audioBuffer.length} bytes`)
 
-        // Step 2: Transcribe with Whisper using native https
-        console.log('Calling Whisper API...')
+        // Step 2: Transcribe with Groq Whisper
+        console.log('Transcribing with Groq Whisper...')
         const { text: transcribedText, language: detectedLanguage } =
-          await transcribeWithWhisper(audioBuffer, process.env.OPENAI_API_KEY || '')
+          await transcribeAudio(audioBuffer, process.env.GROQ_API_KEY || '')
 
         console.log(`Transcribed: "${transcribedText}" (${detectedLanguage})`)
 
@@ -145,30 +136,25 @@ export async function startVoiceConsumer(prisma: PrismaClient) {
           return
         }
 
-        // Step 3: Translate if needed
+        // Step 3: Translate to English if not already English
         let textTranslated: string | undefined
-        const targetLang = DEEPL_LANGUAGE_MAP[hostLanguage] || 'EN'
-        const sourceLang = DEEPL_LANGUAGE_MAP[detectedLanguage]
 
-        if (detectedLanguage !== hostLanguage && sourceLang && sourceLang !== targetLang) {
-          try {
-            console.log(`Translating from ${sourceLang} to ${targetLang}...`)
-            const translator = new Translator(process.env.DEEPL_API_KEY || '')
-            const translation = await translator.translateText(
-              transcribedText,
-              null,
-              targetLang as any
-            )
-            textTranslated = translation.text
+        if (detectedLanguage !== 'en' && detectedLanguage !== 'english') {
+          console.log(`Translating from ${detectedLanguage} to English...`)
+          textTranslated = await translateToEnglish(
+            transcribedText,
+            process.env.GROQ_API_KEY || ''
+          )
+          if (textTranslated) {
             console.log(`Translated: "${textTranslated}"`)
-          } catch (err) {
-            console.error('Translation failed:', err)
           }
         }
 
-        // Step 4: Get room for moderation mode
+        // Step 4: Get room moderation mode
         const room = await prisma.room.findUnique({ where: { roomCode } })
-        const status = room?.moderationMode === 'pre' ? 'pending_approval' : 'active'
+        const status = room?.moderationMode === 'pre'
+          ? 'pending_approval'
+          : 'active'
 
         // Step 5: Update question in database
         const updatedQuestion = await prisma.question.update({
@@ -182,10 +168,12 @@ export async function startVoiceConsumer(prisma: PrismaClient) {
           }
         })
 
-        // Step 6: Delete audio from Cloudinary
+        // Step 6: Delete audio from Cloudinary (privacy)
         try {
-          await cloudinary.uploader.destroy(audioPublicId, { resource_type: 'video' })
-          console.log(`Audio deleted from Cloudinary`)
+          await cloudinary.uploader.destroy(audioPublicId, {
+            resource_type: 'video'
+          })
+          console.log('Audio deleted from Cloudinary')
         } catch (err) {
           console.error('Failed to delete audio:', err)
         }
