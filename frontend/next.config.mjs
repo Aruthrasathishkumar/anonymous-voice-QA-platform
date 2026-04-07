@@ -1,12 +1,4 @@
 /** @type {import('next').NextConfig} */
-const nextConfig = {
-  output: 'export',
-  basePath: '/anonymous-voice-QA-platform',
-  assetPrefix: '/anonymous-voice-QA-platform/',
-  images: {
-    unoptimized: true,
-  },
-  trailingSlash: true,
-};
+const nextConfig = {};
 
 export default nextConfig;

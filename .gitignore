@@ -11,4 +11,3 @@ Thumbs.db
 next-env.d.ts
 prisma/migrations/dev.db
 coverage/
-out/
