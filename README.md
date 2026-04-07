@@ -84,14 +84,14 @@ npm run dev
 
 ## 📸 Screenshots
 
-<img src="./screenshots/screenshots 2026-04-07 000201.png" width="800"/>
+<img src="./screenshots/Screenshot 2026-04-07 000201.png" width="800"/>
 
-<img src="./screenshots/screenshots 2026-04-07 000220.png" width="800"/>
+<img src="./screenshots/Screenshot 2026-04-07 000220.png" width="800"/>
 
-<img src="./screenshots/screenshots 2026-04-07 000234.png" width="800"/>
+<img src="./screenshots/Screenshot 2026-04-07 000234.png" width="800"/>
 
-<img src="./screenshots/screenshots 2026-04-07 000323.png" width="800"/>
+<img src="./screenshots/Screenshot 2026-04-07 000323.png" width="800"/>
 
-<img src="./screenshots/screenshots 2026-04-07 000338.png" width="800"/>
+<img src="./screenshots/Screenshot 2026-04-07 000338.png" width="800"/>
 
-<img src="./screenshots/screenshots 2026-04-07 000356.png" width="800"/>
+<img src="./screenshots/Screenshot 2026-04-07 000356.png" width="800"/>
