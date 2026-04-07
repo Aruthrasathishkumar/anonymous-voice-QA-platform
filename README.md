@@ -83,15 +83,15 @@ npm run dev
 - 🔐 Multi-layer vote integrity (DB + Redis + fingerprinting)
 
 ## 📸 Screenshots
-```
-<img src="./Screenshots/Screenshot 2026-04-05 205607.png" width="800"/>
 
-<img src="./Screenshots/Screenshot 2026-04-05 205801.png" width="800"/>
+<img src="./screenshots/screenshot 2026-04-07 000201.png" width="800"/>
 
-<img src="./Screenshots/Screenshot 2026-04-05 205814.png" width="800"/>
+<img src="./screenshots/screenshot 2026-04-07 000220.png" width="800"/>
 
-<img src="./Screenshots/Screenshot 2026-04-05 211031.png" width="800"/>
+<img src="./screenshots/screenshot 2026-04-07 000234.png" width="800"/>
 
-<img src="./Screenshots/Screenshot 2026-04-05 211246.png" width="800"/>
+<img src="./screenshots/screenshot 2026-04-07 000323.png" width="800"/>
 
-<img src="./Screenshots/Screenshot 2026-04-05 211314.png" width="800"/>
+<img src="./screenshots/screenshot 2026-04-07 000338.png" width="800"/>
+
+<img src="./screenshots/screenshot 2026-04-07 000356.png" width="800"/>
