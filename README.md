@@ -14,6 +14,10 @@ https://aruthrasathishkumar.github.io/anonymous-voice-QA-platform/
 
 💡 This is a deliberate system design choice to demonstrate scalable real-time architecture locally.
 
+## ⚙️ System Architecture 
+
+<img src="./screenshots/SpeakUp system Architecture.png" width="800"/>
+
 ## 🧠 What This Project Does
 
 SpeakUp solves a critical problem in live events:
